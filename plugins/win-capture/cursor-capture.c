@@ -16,6 +16,8 @@ static uint8_t *get_bitmap_data(HBITMAP hbmp, BITMAP *bmp)
 	return NULL;
 }
 
+
+
 static inline uint8_t bit_to_alpha(uint8_t *data, long pixel, bool invert)
 {
 	uint8_t pix_byte = data[pixel / 8];
@@ -73,9 +75,9 @@ static inline uint8_t *copy_from_color(ICONINFO *ii, uint32_t *width,
 	mask = get_bitmap_data(ii->hbmMask, &bmp_mask);
 	if (mask) {
 		long pixels = bmp_color.bmHeight * bmp_color.bmWidth;
-
-		if (!bitmap_has_alpha(color, pixels))
+		if (!bitmap_has_alpha(color, pixels)) {
 			apply_mask(color, mask, &bmp_mask);
+		}
 
 		bfree(mask);
 	}
@@ -186,7 +188,9 @@ static inline bool cursor_capture_icon(struct cursor_data *data, HICON icon)
 			data->last_cx = width;
 			data->last_cy = height;
 		}
+
 		gs_texture_set_image(data->texture, bitmap, width * 4, false);
+		
 		bfree(bitmap);
 
 		data->x_hotspot = ii.xHotspot;
@@ -198,11 +202,24 @@ static inline bool cursor_capture_icon(struct cursor_data *data, HICON icon)
 	return !!data->texture;
 }
 
+static ICONINFO invert(CURSORINFO *ci) 
+{
+	ICONINFO ii;
+	BITMAP bm;
+	GetIconInfo(ci->hCursor, &ii);
+	GetObjectW(ii.hbmColor, sizeof(BITMAP), &bm);
+
+	HDC hmemdc = CreateCompatibleDC(NULL);
+	SelectObject(hmemdc, ii.hbmColor);
+	BitBlt(hmemdc, 0, 0, bm.bmWidth, bm.bmHeight, hmemdc, 0, 0, SRCINVERT);
+	DeleteDC(hmemdc);
+	return ii;
+}
+
 void cursor_capture(struct cursor_data *data)
 {
 	CURSORINFO ci = {0};
 	HICON icon;
-
 	ci.cbSize = sizeof(ci);
 
 	if (!GetCursorInfo(&ci)) {
@@ -216,7 +233,17 @@ void cursor_capture(struct cursor_data *data)
 		return;
 	}
 
+	if ((GetKeyState(VK_LBUTTON) & 0x8000) != 0) {
+		ICONINFO ii = invert(&ci);
+		HICON hicon = CreateIconIndirect(&ii);
+		DestroyIcon(ci.hCursor);
+		ci.hCursor = CopyIcon(hicon);
+		DestroyIcon(hicon);
+	}
+
 	icon = CopyIcon(ci.hCursor);
+
+
 	data->visible = cursor_capture_icon(data, icon);
 	data->current_cursor = ci.hCursor;
 	if ((ci.flags & CURSOR_SHOWING) == 0)
@@ -245,12 +272,14 @@ void cursor_draw(struct cursor_data *data, long x_offset, long y_offset,
 					   GS_BLEND_ONE /*src_alpha*/,
 					   GS_BLEND_INVSRCALPHA /*dest_alpha*/);
 
+
 		gs_matrix_push();
 		obs_source_draw(data->texture, x_draw, y_draw, 0, 0, false);
 		gs_matrix_pop();
 
 		gs_blend_state_pop();
 	}
+	cursor_data_free(data);
 }
 
 void cursor_data_free(struct cursor_data *data)
