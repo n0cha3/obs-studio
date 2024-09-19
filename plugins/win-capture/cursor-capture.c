@@ -2,6 +2,8 @@
 #include <obs.h>
 #include "cursor-capture.h"
 
+#pragma comment(lib, "Msimg32.lib")
+
 static uint8_t *get_bitmap_data(HBITMAP hbmp, BITMAP *bmp)
 {
 	if (GetObject(hbmp, sizeof(*bmp), bmp) != 0) {
@@ -202,16 +204,23 @@ static inline bool cursor_capture_icon(struct cursor_data *data, HICON icon)
 	return !!data->texture;
 }
 
-static ICONINFO invert(CURSORINFO *ci) 
+static ICONINFO invert(CURSORINFO *ci, bool monochrome) 
 {
 	ICONINFO ii;
 	BITMAP bm;
-	GetIconInfo(ci->hCursor, &ii);
-	GetObjectW(ii.hbmColor, sizeof(BITMAP), &bm);
-
 	HDC hmemdc = CreateCompatibleDC(NULL);
-	SelectObject(hmemdc, ii.hbmColor);
-	BitBlt(hmemdc, 0, 0, bm.bmWidth, bm.bmHeight, hmemdc, 0, 0, SRCINVERT);
+	if (!monochrome) {
+		GetIconInfo(ci->hCursor, &ii);
+		GetObjectW(ii.hbmColor, sizeof(BITMAP), &bm);
+		SelectObject(hmemdc, ii.hbmColor);
+		BitBlt(hmemdc, 0, 0, bm.bmWidth, bm.bmHeight, hmemdc, 0, 0, SRCINVERT);
+	}
+	else {
+		GetIconInfo(ci->hCursor, &ii);
+		GetObjectW(ii.hbmMask, sizeof(BITMAP), &bm);
+		SelectObject(hmemdc, ii.hbmMask);
+		BitBlt(hmemdc, 0, 0, bm.bmWidth, bm.bmHeight, hmemdc, 0, 0, SRCINVERT);
+	}
 	DeleteDC(hmemdc);
 	return ii;
 }
@@ -234,11 +243,14 @@ void cursor_capture(struct cursor_data *data)
 	}
 
 	if ((GetKeyState(VK_LBUTTON) & 0x8000) != 0) {
-		ICONINFO ii = invert(&ci);
+		ICONINFO ii = invert(&ci, data->monochrome);
 		HICON hicon = CreateIconIndirect(&ii);
 		DestroyIcon(ci.hCursor);
 		ci.hCursor = CopyIcon(hicon);
+		data->current_cursor = ci.hCursor;
 		DestroyIcon(hicon);
+		DeleteObject(ii.hbmMask);
+		DeleteObject(ii.hbmColor);
 	}
 
 	icon = CopyIcon(ci.hCursor);
